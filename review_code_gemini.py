@@ -117,8 +117,14 @@ def analyze_code(parsed_diff: List[Dict[str, Any]], pr_details: PRDetails) -> Li
 
             prompt = create_prompt(file_info, hunk, pr_details)
             print("Sending prompt to Gemini...")
-            ai_response = get_ai_response(prompt)
+            explanation, ai_response = get_ai_response(prompt)
             print(f"AI response received: {ai_response}")
+
+            if explanation:
+                print("First explanation comment!")
+                comments.append({
+                    "body": explanation
+                })
 
             if ai_response:
                 new_comments = create_comment(file_info, hunk, ai_response)
@@ -134,29 +140,31 @@ def analyze_code(parsed_diff: List[Dict[str, Any]], pr_details: PRDetails) -> Li
 def create_prompt(file: PatchedFile, hunk: Hunk, pr_details: PRDetails) -> str:
     """Creates the prompt for the Gemini model."""
     return f"""Your task is reviewing pull requests. Instructions:
-    - Provide the response in following JSON format:  {{"reviews": [{{"lineNumber":  <line_number>, "reviewComment": "<review comment>"}}]}}
+    - Provide the response in following JSON format:  {{"explanation": <explanation>, "reviews": [{{"lineNumber":  <line_number>, "reviewComment": "<review comment>"}}]}}
+    - Provide a summarized explanation about the Pull Request
     - Provide comments and suggestions ONLY if there is something to improve, otherwise "reviews" should be an empty array.
     - Use GitHub Markdown in comments
     - Focus on bugs, security issues, and performance problems
     - IMPORTANT: NEVER suggest adding comments to the code
+    - Use pt-BR in comments
 
-Review the following code diff in the file "{file.path}" and take the pull request title and description into account when writing the response.
+    Review the following code diff in the file "{file.path}" and take the pull request title and description into account when writing the response.
 
-Pull request title: {pr_details.title}
-Pull request description:
+    Pull request title: {pr_details.title}
+    Pull request description:
 
----
-{pr_details.description or 'No description provided'}
----
+    ---
+    {pr_details.description or 'No description provided'}
+    ---
 
-Git diff to review:
+    Git diff to review:
 
-```diff
-{hunk.content}
-```
-"""
+    ```diff
+    {hunk.content}
+    ```
+    """
 
-def get_ai_response(prompt: str) -> List[Dict[str, str]]:
+def get_ai_response(prompt: str) -> [str, List[Dict[str, str]]]:
     """Sends the prompt to Gemini API and retrieves the response."""
     # Use 'gemini-1.5-flash-002' as a fallback default value if the environment variable isn't set
     gemini_model = Client.GenerativeModel(os.environ.get('GEMINI_MODEL', 'gemini-1.5-flash-002'))
@@ -184,6 +192,10 @@ def get_ai_response(prompt: str) -> List[Dict[str, str]]:
         try:
             data = json.loads(response_text)
             print(f"Parsed JSON data: {data}")
+            explanation = ""
+
+            if "explanation" in data:
+                explanation = data["explanation"]
 
             if "reviews" in data and isinstance(data["reviews"], list):
                 reviews = data["reviews"]
@@ -193,18 +205,18 @@ def get_ai_response(prompt: str) -> List[Dict[str, str]]:
                         valid_reviews.append(review)
                     else:
                         print(f"Invalid review format: {review}")
-                return valid_reviews
+                return explanation, valid_reviews
             else:
                 print("Error: Response doesn't contain valid 'reviews' array")
                 print(f"Response content: {data}")
-                return []
+                return explanation, []
         except json.JSONDecodeError as e:
             print(f"Error decoding JSON response: {e}")
             print(f"Raw response: {response_text}")
-            return []
+            return explanation, []
     except Exception as e:
         print(f"Error during Gemini API call: {e}")
-        return []
+        return explanation, []
 
 class FileInfo:
     """Simple class to hold file information."""
