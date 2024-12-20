@@ -117,15 +117,9 @@ def analyze_code(parsed_diff: List[Dict[str, Any]], pr_details: PRDetails) -> Li
 
             prompt = create_prompt(file_info, hunk, pr_details)
             print("Sending prompt to Gemini...")
-            explanation, ai_response = get_ai_response(prompt)
+            ai_response = get_ai_response(prompt)
             print(f"AI response received: {ai_response}")
-
-            if explanation:
-                print("First explanation comment!")
-                comments.append({
-                    "body": explanation
-                })
-
+            
             if ai_response:
                 new_comments = create_comment(file_info, hunk, ai_response)
                 print(f"Comments created from AI response: {new_comments}")
@@ -140,9 +134,9 @@ def analyze_code(parsed_diff: List[Dict[str, Any]], pr_details: PRDetails) -> Li
 def create_prompt(file: PatchedFile, hunk: Hunk, pr_details: PRDetails) -> str:
     """Creates the prompt for the Gemini model."""
     return f"""Your task is reviewing pull requests. Instructions:
-    - Provide the response in following JSON format:  {{"explanation": <explanation>, "reviews": [{{"lineNumber":  <line_number>, "reviewComment": "<review comment>"}}]}}
-    - Provide a summarized explanation about the Pull Request
-    - Provide comments and suggestions ONLY if there is something to improve, otherwise "reviews" should be an empty array.
+    - Provide the response in following JSON format:  {{"reviews": [{{"lineNumber":  <line_number>, "reviewComment": "<review comment>"}}]}}
+    - Provide a summarized explanation about the code
+    - Provide explanations, comments and suggestions ONLY if there is something to improve, otherwise "reviews" should be an empty array.
     - Use GitHub Markdown in comments
     - Focus on bugs, security issues, and performance problems
     - IMPORTANT: NEVER suggest adding comments to the code
@@ -164,7 +158,7 @@ def create_prompt(file: PatchedFile, hunk: Hunk, pr_details: PRDetails) -> str:
     ```
     """
 
-def get_ai_response(prompt: str) -> [str, List[Dict[str, str]]]:
+def get_ai_response(prompt: str) -> List[Dict[str, str]]:
     """Sends the prompt to Gemini API and retrieves the response."""
     # Use 'gemini-1.5-flash-002' as a fallback default value if the environment variable isn't set
     gemini_model = Client.GenerativeModel(os.environ.get('GEMINI_MODEL', 'gemini-1.5-flash-002'))
@@ -192,10 +186,6 @@ def get_ai_response(prompt: str) -> [str, List[Dict[str, str]]]:
         try:
             data = json.loads(response_text)
             print(f"Parsed JSON data: {data}")
-            explanation = ""
-
-            if "explanation" in data:
-                explanation = data["explanation"]
 
             if "reviews" in data and isinstance(data["reviews"], list):
                 reviews = data["reviews"]
@@ -205,18 +195,18 @@ def get_ai_response(prompt: str) -> [str, List[Dict[str, str]]]:
                         valid_reviews.append(review)
                     else:
                         print(f"Invalid review format: {review}")
-                return explanation, valid_reviews
+                return valid_reviews
             else:
                 print("Error: Response doesn't contain valid 'reviews' array")
                 print(f"Response content: {data}")
-                return explanation, []
+                return []
         except json.JSONDecodeError as e:
             print(f"Error decoding JSON response: {e}")
             print(f"Raw response: {response_text}")
-            return explanation, []
+            return []
     except Exception as e:
         print(f"Error during Gemini API call: {e}")
-        return explanation, []
+        return []
 
 class FileInfo:
     """Simple class to hold file information."""
